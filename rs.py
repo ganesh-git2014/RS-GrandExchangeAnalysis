@@ -16,7 +16,7 @@ timeDate = time.asctime()
 LOG_DIR = 'rs_logs/'
 LOG_FILE = "rs_dump-%s.log" % (timeDate.replace(":", "_"))
 
-def PrefixUnpack(price):
+def SuffixUnpack(price):
     pass
 
 def LiveStatus(mType, message):

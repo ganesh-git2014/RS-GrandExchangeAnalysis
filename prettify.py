@@ -9,8 +9,7 @@ import time
     #cPrint('critical','This is a critial message')
 '''
 
-def cPrint(msType, message,method='print',delayAfter=0.1,delayBefore=0):
-    time.sleep(delayBefore)
+def cPrint(msType, message,method='print'):
 
     try:
         mType = {'w':('WARNING','\033[33m'),'s':('SUCCESS','\033[32m'),\
@@ -29,10 +28,10 @@ def cPrint(msType, message,method='print',delayAfter=0.1,delayBefore=0):
             #return "{0}{1}[{2}] [{3}] {4}{5}{6}".format \
             #(newLine, color, currentTime, header, message, colorReset, carriageReturn)
 
-            return "{0}[{1}] [{2}] {3}{4}".format \
+            return "\n{0}[{1}] [{2}] {3}{4}".format \
                    (color, currentTime, header, message, carriageReturn)
 
-        time.sleep(delayAfter) #for readablity print slower to screen, default set to 0.1
+    
 
     except Exception as e:
         print e

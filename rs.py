@@ -6,6 +6,7 @@ import time
 import sys
 
 
+
 SERVICES_API = "http://services.runescape.com/m=itemdb_rs/api/"
 
 multipliers = {'k' : 1000, 'm' : 1000000, 'b' : 1000000000}
@@ -19,6 +20,13 @@ LOG_FILE = "rs_dump-%s.log" % (timeDate.replace(":", "_"))
 
 proxy_pool = ProxyPool('proxy_list')
 
+#Server checks
+serverTimeouts = 0
+serverCoolDownTime = 180
+serverTimeoutThreshold = 3
+
+
+
 def SuffixUnpack(price):
     suffix = str(price)[-1]
     if suffix in multipliers:
@@ -28,14 +36,15 @@ def SuffixUnpack(price):
 
 def LiveStatus(mType, message):
     sys.stdout.write(cPrint(mType, "{: <120}".format(message), 'r'))
-    time.sleep(0.1)
+    #time.sleep(0.1)
     sys.stdout.flush()
 
 def ProcessCategory(category, jsonObj):
     INDEX[category] = []
     for alpha in jsonObj['alpha']:
         if alpha['items'] > 0:
-            INDEX[category].append(alpha['letter'])
+            if alpha['letter'] != '#': #QUICK DIRTY FIX
+                INDEX[category].append(alpha['letter'])
 
 def ProcessPage(jsonObj):
     for item in jsonObj['items']:
@@ -60,50 +69,81 @@ def UpdateIndex():
 
             #Verbose Mode
             LiveStatus('p','Updating index for category {0}'.format(category))
-            print "\t", proxyUsed, r
+            #print "\t\t", proxyUsed, r
         except Exception as e:
             cPrint('w', "Unable to load category {0}: {1}".format(category, url))
-            print "\t", proxyUsed, r, r.content
+            #print "\t\t", proxyUsed, r, r.content
+            
             #Verbose Mode
             cPrint('c', "Reason: {0}".format(e.message))
 
     cPrint('s','Index Update Complete.')
 
+
 def FetchPrices(cat, alphas):
     BASE_URL = SERVICES_API + "catalogue/items.json"
 
     for letter in alphas:
-        # Consider future-proofing the range
+        #debugging
+        if letter.lower() == "p":
+            continue
         for page in range(99): ## TODO: 99
             url = BASE_URL + "?category={0}&alpha={1}&page={2}".format(cat, letter, page)
-            try:
-                r, proxyUsed = proxy_pool.GetNextProxy(url)
-                c = json.loads(r.content)
-                print "\t", proxyUsed, r
-                if c['items']:
-                    #Verbose Mode
-                    LiveStatus('p','Fetching Prices category {0} letter {1} page {2}'.format(category, letter, page))
-                else:
+            global serverTimeouts
+            tries = 0
+            lastPage = False
+            while True and tries < 5:
 
-                    LiveStatus('w','Reached last page, proceeding to next letter')
+                try:
+                    r, proxyUsed = proxy_pool.GetNextProxy(url)
+                    c = json.loads(r.content)
+                    #print "\t\t", proxyUsed, r
+                    if c['items']:
+                        #Verbose Mode
+                        LiveStatus('p','Fetching Prices category {0} letter {1} page {2}'.format(category, letter, page))
+                        ProcessPage(c)
+                        break
+                    else:
+                        LiveStatus('w','Reached last page, proceeding to next letter')
+                        lastPage = True
+                        break
+                    
+                except ValueError as ve:
+                    serverTimeouts += 1
+                    tries += 1
+                    sleepTime = tries * 10
+                    cPrint('f', "Failed to load category {0} letter {1} page {2}\t[Retry {3}: Retrying in {4} seconds]".format \
+                                                                                    (category, letter, page, tries, sleepTime))
+                    time.sleep(sleepTime)
+                    ServerCheck()
+                except Exception as e:
+                    cPrint('w', "Unable to load items category {0} letter {1} page {2}: {3}".format(category, letter, page, url))
+                    print e.message
+                    print "\t\t", proxyUsed, r
                     break
-                ProcessPage(c)
-                #Debugging page break mech
-                #print "\nyes" + str(len(c['items'])) if c['items'] > 0 else "\nNo" + str(c)
-            except Exception as e:
-                cPrint('w', "Unable to load items category {0} letter {1} page {2}: {3}".format(category, letter, page, url))
-                print e.message
-                print "\t", proxyUsed, r
+
+            if lastPage:
+                break
+    
+
+def ServerCheck():
+    metThreshold = lambda x: x % serverTimeoutThreshold
+    if not metThreshold(serverTimeouts):
+        cPrint('w','Server cooldown activated, sleeping for {} seconds'.format(serverCoolDownTime))
+        time.sleep(serverCoolDownTime)
+
+
 
 def FileDump():
+    dumpAmount = len(PRICE_DATA)
     cPrint('p','Initialising Dump.')
     with open(LOG_DIR + LOG_FILE, 'w') as dump_file:
         for item in PRICE_DATA:
             dump_file.write(item+'\n')
             LiveStatus('p','Dumping: {0}'.format(item))
 
-    cPrint('s','Dumped {0} Successfully.'.format(len(PRICE_DATA)))
-
+    cPrint('s','Dumped {0} Items Successfully.'.format(len(PRICE_DATA)))
+    #print serverTimeouts
 
 # Main
 cPrint('p', "Updating Index")
@@ -112,9 +152,6 @@ UpdateIndex()
 
 for category, alphas in INDEX.iteritems():
     FetchPrices(category, alphas)
-    break
-    #cPrint('p','Sleeping for 5 minutes')
-    #time.sleep(300)
 
 FileDump()
 
